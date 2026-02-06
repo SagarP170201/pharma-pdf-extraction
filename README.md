@@ -1,67 +1,60 @@
-# Pharma PDF Extraction
+# Pharma Stock Statement PDF Extraction
 
-Extracts stock statement data from pharma PDF files using Snowflake's AI_PARSE_DOCUMENT and Cortex LLM.
+Extracts stock data from PDF files using Snowflake AI_PARSE_DOCUMENT and Cortex LLM.
 
 ## Overview
 
-This project handles 8 different PDF templates for pharma stock statements. Each template has different column structures, requiring customized extraction logic.
-
-## Methods Used
+Supports multiple PDF templates with different column structures using two extraction methods:
 
 | Method | Use Case |
 |--------|----------|
-| **LAYOUT** | PDFs with proper table formatting (markdown tables) |
-| **OCR + LLM** | PDFs with dashed-line tables that LAYOUT mode doesn't recognize |
+| **LAYOUT** | PDFs with standard table formatting |
+| **OCR + LLM** | PDFs with non-standard formatting (dashed lines, etc.) |
 
 ## PDF Summary
 
-| PDF | File | Rows | Method | Template Type |
-|-----|------|------|--------|---------------|
-| 1 | 10000029 - Shweta Drug.pdf | - | Skipped | Custom |
-| 2 | 10000053.pdf.pdf | 23 | LAYOUT | Metabolics |
-| 3 | 10013295.pdf | 14 | LAYOUT | GI Optima |
-| 4 | 10024246.pdf.pdf | 33 | LAYOUT | Standard |
-| 5 | 10030920 PDF.pdf | 13 | LAYOUT | Alternate |
-| 6 | 10032299.pdf | 10 | LAYOUT | Summary |
-| 7 | 10013972.PDF | 24 | OCR+LLM | Dashed-line |
-| 8 | 10000406--SHANMUGA | 89 | OCR+LLM | Multi-page |
+| PDF | File | Rows | Method |
+|-----|------|------|--------|
+| 1 | 10000029 - Shweta Drug.pdf | 5 | LAYOUT |
+| 2 | 10000053.pdf.pdf | 23 | LAYOUT |
+| 3 | 10013295.pdf | 14 | LAYOUT |
+| 4 | 10024246.pdf.pdf | 33 | LAYOUT |
+| 5 | 10030920 PDF.pdf | 13 | LAYOUT |
+| 6 | 10032299.pdf | 10 | LAYOUT |
+| 7 | 10013972.PDF | 24 | OCR+LLM |
+| 8 | 10000406--SHANMUGA | - | Pending |
 
 ## Prerequisites
 
 - Snowflake account with Cortex AI enabled
 - Database: `PHARMA_POC`
 - Schema: `STOCK_EXTRACTION`
-- Stage: `@PDF_STAGE_V2` with uploaded PDFs
+- Stage: `@PDF_STAGE_V2`
 
 ## Usage
 
-1. Upload PDFs to Snowflake stage:
+1. Upload PDFs to stage:
 ```sql
 PUT file:///path/to/pdfs/* @PDF_STAGE_V2;
 ```
 
-2. Run the extraction script in Snowsight:
-```sql
--- Open pharma_extraction_complete.sql and run
-```
+2. Run extraction script in Snowsight
 
 3. View results:
 ```sql
-SELECT * FROM RAW_10000053;  -- PDF 2
-SELECT * FROM RAW_10013295;  -- PDF 3
--- etc.
+SELECT * FROM RAW_10000053;
 ```
 
 ## Key Techniques
 
 ### Column Merging
-Some PDFs split item descriptions across multiple columns. Fixed by concatenating:
+For split columns:
 ```sql
 TRIM(SPLIT_PART(line.value, '|', 4)) || TRIM(SPLIT_PART(line.value, '|', 5)) AS item_description
 ```
 
-### OCR + LLM for Dashed Tables
-For PDFs where LAYOUT mode fails:
+### OCR + LLM Hybrid
+For non-standard tables:
 ```sql
 WITH ocr_output AS (
     SELECT AI_PARSE_DOCUMENT(TO_FILE('@stage/file.pdf'), {'mode': 'OCR'}):content::STRING
@@ -70,15 +63,6 @@ llm_parsed AS (
     SELECT SNOWFLAKE.CORTEX.COMPLETE('llama3.1-70b', 'Parse to JSON...' || raw_text)
 )
 SELECT ... FROM llm_parsed, LATERAL FLATTEN(input => json_data) f;
-```
-
-### Column Rules for Empty Columns
-When OCR produces space-delimited text, explicitly tell LLM which columns are empty:
-```
-Column rules:
-- Packing: ALWAYS empty
-- Stock-Out: ALWAYS empty  
-- Stock-In: ALWAYS empty
 ```
 
 ## Files

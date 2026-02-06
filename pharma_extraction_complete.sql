@@ -1,20 +1,19 @@
 -- ============================================================================
--- PHARMA PDF EXTRACTION - COMPLETE END-TO-END SCRIPT
--- Extracts stock statement data from 8 different PDF templates
--- Run in Snowsight to extract all PDFs
+-- PHARMA STOCK STATEMENT PDF EXTRACTION
+-- ============================================================================
+-- Extracts stock data from PDF files using Snowflake AI_PARSE_DOCUMENT
+-- Supports multiple PDF templates with different column structures
 -- ============================================================================
 
 USE DATABASE PHARMA_POC;
 USE SCHEMA STOCK_EXTRACTION;
 
 -- ============================================================================
--- PART 1: LAYOUT EXTRACTION (6 PDFs with markdown tables)
--- Each PDF has different column structures - handled individually
+-- LAYOUT MODE EXTRACTIONS
+-- For PDFs with standard table formatting
 -- ============================================================================
 
--- PDF 1: RAW_10000029_SHWETA_DRUG (Skipped - different template)
--- Uncomment and customize if needed
-/*
+-- PDF 1: 10000029 - Shweta Drug (5 rows)
 CREATE OR REPLACE TABLE RAW_10000029_SHWETA_DRUG AS
 WITH parsed AS (
     SELECT AI_PARSE_DOCUMENT(
@@ -24,17 +23,22 @@ WITH parsed AS (
 )
 SELECT 
     '10000029 - Shweta Drug.pdf' AS source_file,
-    TRIM(SPLIT_PART(line.value, '|', 2)) AS col1,
-    TRIM(SPLIT_PART(line.value, '|', 3)) AS col2,
-    -- Add more columns as needed
+    TRIM(SPLIT_PART(line.value, '|', 2)) AS product_name,
+    TRIM(SPLIT_PART(line.value, '|', 3)) AS unit,
+    TRIM(SPLIT_PART(line.value, '|', 4)) AS co,
+    TRY_TO_NUMBER(TRIM(SPLIT_PART(line.value, '|', 5))) AS op_qty,
+    TRY_TO_NUMBER(TRIM(SPLIT_PART(line.value, '|', 6))) AS in_qty,
+    TRY_TO_NUMBER(TRIM(SPLIT_PART(line.value, '|', 7))) AS out_qty,
+    TRY_TO_NUMBER(TRIM(SPLIT_PART(line.value, '|', 8))) AS cl_qty,
+    TRY_TO_NUMBER(TRIM(SPLIT_PART(line.value, '|', 9))) AS cl_val
 FROM parsed,
 LATERAL FLATTEN(input => SPLIT(markdown_content, '\n')) line
 WHERE line.value LIKE '%|%'
-  AND line.value NOT LIKE '%---%';
-*/
+  AND line.value NOT LIKE '%---%'
+  AND TRIM(SPLIT_PART(line.value, '|', 2)) NOT IN ('Product name', '')
+  AND TRIM(SPLIT_PART(line.value, '|', 2)) NOT LIKE '%Total%';
 
--- PDF 2: RAW_10000053 (23 rows)
--- Columns: Code, Item Description (merged from 2 cols), Packing, Opening, Purchase, Stock-Out, Aug, Sep, Sales, Stock-In, Closing, Stock-Value, Sales-Value
+-- PDF 2: 10000053 (23 rows)
 CREATE OR REPLACE TABLE RAW_10000053 AS
 WITH parsed AS (
     SELECT AI_PARSE_DOCUMENT(
@@ -63,8 +67,7 @@ WHERE line.value LIKE '%|%'
   AND line.value NOT LIKE '%---%'
   AND TRIM(SPLIT_PART(line.value, '|', 2)) REGEXP '^[0-9]+$';
 
--- PDF 3: RAW_10013295 (14 rows)
--- Columns: Product Description, Packing, Opeste, Purch, Sale, Sale Val, Blot, Stock, Stk Val, Sep, Aug, Stk120, Exp3m
+-- PDF 3: 10013295 (14 rows)
 CREATE OR REPLACE TABLE RAW_10013295 AS
 WITH parsed AS (
     SELECT AI_PARSE_DOCUMENT(
@@ -95,8 +98,7 @@ WHERE line.value LIKE '%|%'
   AND TRIM(SPLIT_PART(line.value, '|', 2)) NOT LIKE 'ABBOTT%'
   AND TRIM(SPLIT_PART(line.value, '|', 2)) NOT LIKE '%TOTAL%';
 
--- PDF 4: RAW_10024246 (33 rows)
--- Columns: Code, Item Description, Packing, Opening, Purchase Stock-Out (merged), Aug, Sep, Sales, Stock-In, Closing Stock (merged), Stock-Value, Sales-Value
+-- PDF 4: 10024246 (33 rows)
 CREATE OR REPLACE TABLE RAW_10024246 AS
 WITH parsed AS (
     SELECT AI_PARSE_DOCUMENT(
@@ -124,8 +126,7 @@ WHERE line.value LIKE '%|%'
   AND line.value NOT LIKE '%---%'
   AND TRIM(SPLIT_PART(line.value, '|', 2)) REGEXP '^[0-9]+$';
 
--- PDF 5: RAW_10030920 (13 rows)
--- Columns: S.No, Product Name, Qty, PQty, SQty, S/he, S/let, Stock, Pur/late, Stock Value, Sq/ur Value, PQ/ur, PFr, P/let
+-- PDF 5: 10030920 (13 rows)
 CREATE OR REPLACE TABLE RAW_10030920 AS
 WITH parsed AS (
     SELECT AI_PARSE_DOCUMENT(
@@ -155,8 +156,7 @@ WHERE line.value LIKE '%|%'
   AND line.value NOT LIKE '%---%'
   AND TRIM(SPLIT_PART(line.value, '|', 2)) REGEXP '^[0-9]+$';
 
--- PDF 6: RAW_10032299 (10 rows)
--- Columns: S.No, Product Name, Packing, Opsth, For, Aug, Sep, Sale, SFree, CurStk, OrdQty, Rate, TotIssues
+-- PDF 6: 10032299 (10 rows)
 CREATE OR REPLACE TABLE RAW_10032299 AS
 WITH parsed AS (
     SELECT AI_PARSE_DOCUMENT(
@@ -186,13 +186,11 @@ WHERE line.value LIKE '%|%'
   AND TRIM(SPLIT_PART(line.value, '|', 2)) REGEXP '^[0-9]+$';
 
 -- ============================================================================
--- PART 2: OCR + LLM HYBRID EXTRACTION (2 PDFs with dashed-line tables)
--- These PDFs use dashed-line separators that LAYOUT mode doesn't recognize
+-- OCR + LLM HYBRID EXTRACTION
+-- For PDFs with non-standard table formatting (dashed lines, etc.)
 -- ============================================================================
 
--- PDF 7: RAW_10013972 (24 rows)
--- Single page, dashed-line table format
--- Columns: Code, Item Description, Packing, Opening, Purchase, Stock-Out, Aug, Sep, Sales, Stock-In, Closing, Stock-Value, Sales-Value
+-- PDF 7: 10013972 (24 rows)
 CREATE OR REPLACE TABLE RAW_10013972 AS
 WITH ocr_output AS (
     SELECT AI_PARSE_DOCUMENT(
@@ -208,7 +206,7 @@ llm_raw AS (
 13 columns: Code|Item Description|Packing|Opening|Purchase|Stock-Out|Aug|Sep|Sales|Stock-In|Closing|Stock-Value|Sales-Value
 
 Column rules:
-- Packing: ALWAYS empty (ignore any text that looks like packing)
+- Packing: ALWAYS empty
 - Stock-Out: ALWAYS empty  
 - Stock-In: ALWAYS empty
 - Sales: HAS VALUES when present
@@ -245,9 +243,8 @@ SELECT
     TRY_TO_NUMBER(f.value:"Sales-Value"::STRING) AS sales_value
 FROM llm_parsed, LATERAL FLATTEN(input => json_data) f;
 
--- PDF 8: RAW_10000406_SHANMUGA (89 rows) - Skipped
--- Multi-page, multi-company, dashed-line tables
--- Uncomment if needed
+-- PDF 8: 10000406 (Pending - requires additional configuration)
+-- Uncomment and configure when ready
 /*
 CREATE OR REPLACE TABLE RAW_10000406_SHANMUGA AS
 WITH pages AS (
@@ -268,7 +265,7 @@ llm_parsed AS (
         REPLACE(REPLACE(
             SNOWFLAKE.CORTEX.COMPLETE(
                 'llama3.1-70b',
-                'Parse stock rows into JSON array. Extract: company, product_name, packing, opening_qty, receipt_qty, sales_last, sales_qty, closing_qty, closing_value, age_days. Skip headers/totals/expiry/claims. Return ONLY JSON array.
+                'Parse stock rows into JSON array. Extract: company, product_name, packing, opening_qty, receipt_qty, sales_last, sales_qty, closing_qty, closing_value, age_days. Skip headers/totals. Return ONLY JSON array.
 
 ' || page_content
             ), '```json', ''), '```', '') AS raw_json
@@ -298,36 +295,26 @@ WHERE json_data IS NOT NULL
 */
 
 -- ============================================================================
--- PART 3: EXTRACTION SUMMARY
+-- EXTRACTION SUMMARY
 -- ============================================================================
 
-SELECT 
-    'RAW_10000053' AS table_name, COUNT(*) AS row_count, 'LAYOUT' AS method FROM RAW_10000053
-UNION ALL SELECT 'RAW_10013295', COUNT(*), 'LAYOUT' FROM RAW_10013295
-UNION ALL SELECT 'RAW_10024246', COUNT(*), 'LAYOUT' FROM RAW_10024246
-UNION ALL SELECT 'RAW_10030920', COUNT(*), 'LAYOUT' FROM RAW_10030920
-UNION ALL SELECT 'RAW_10032299', COUNT(*), 'LAYOUT' FROM RAW_10032299
-UNION ALL SELECT 'RAW_10013972', COUNT(*), 'OCR+LLM' FROM RAW_10013972
+SELECT 'RAW_10000029_SHWETA_DRUG' AS table_name, COUNT(*) AS row_count FROM RAW_10000029_SHWETA_DRUG
+UNION ALL SELECT 'RAW_10000053', COUNT(*) FROM RAW_10000053
+UNION ALL SELECT 'RAW_10013295', COUNT(*) FROM RAW_10013295
+UNION ALL SELECT 'RAW_10024246', COUNT(*) FROM RAW_10024246
+UNION ALL SELECT 'RAW_10030920', COUNT(*) FROM RAW_10030920
+UNION ALL SELECT 'RAW_10032299', COUNT(*) FROM RAW_10032299
+UNION ALL SELECT 'RAW_10013972', COUNT(*) FROM RAW_10013972
 ORDER BY table_name;
 
 -- ============================================================================
--- PART 4: VIEW EXTRACTED DATA
+-- VIEW EXTRACTED DATA
 -- ============================================================================
 
--- PDF 2
+SELECT * FROM RAW_10000029_SHWETA_DRUG;
 SELECT * FROM RAW_10000053;
-
--- PDF 3
 SELECT * FROM RAW_10013295;
-
--- PDF 4
 SELECT * FROM RAW_10024246;
-
--- PDF 5
 SELECT * FROM RAW_10030920;
-
--- PDF 6
 SELECT * FROM RAW_10032299;
-
--- PDF 7
 SELECT * FROM RAW_10013972 ORDER BY TRY_CAST(code AS INT);
