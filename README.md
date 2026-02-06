@@ -9,6 +9,18 @@ This solution demonstrates how to extract tabular data from PDF files stored in 
 - **AI_PARSE_DOCUMENT** with LAYOUT mode for standard table extraction
 - **AI_PARSE_DOCUMENT** with OCR mode combined with **Cortex LLM** for complex layouts
 
+## File Mapping
+
+| PDF # | File Name | Output Table | Rows | Method | Columns |
+|-------|-----------|--------------|------|--------|---------|
+| 1 | `10000029 - Shweta Drug.pdf` | RAW_10000029_SHWETA_DRUG | 5 | LAYOUT | 8 cols |
+| 2 | `10000053.pdf.pdf` | RAW_10000053 | 23 | LAYOUT | 14 cols (merged) |
+| 3 | `10013295.pdf` | RAW_10013295 | 14 | LAYOUT | 13 cols |
+| 4 | `10024246.pdf.pdf` | RAW_10024246 | 33 | LAYOUT | 12 cols |
+| 5 | `10030920 PDF.pdf` | RAW_10030920 | 13 | LAYOUT | 14 cols |
+| 6 | `10032299.pdf` | RAW_10032299 | 10 | LAYOUT | 13 cols |
+| 7 | `10013972.PDF` | RAW_10013972 | 24 | OCR+LLM | 13 cols |
+
 ## Prerequisites
 
 - Snowflake account with access to:
@@ -43,6 +55,13 @@ PUT file:///path/to/files/*.pdf @pdf_stage;
 LIST @pdf_stage;
 ```
 
+## Files
+
+| File | Description |
+|------|-------------|
+| `extraction_template.sql` | Generic reusable patterns for PDF extraction |
+| `extraction_implementation.sql` | Working queries for all 7 PDF templates |
+
 ## Extraction Methods
 
 ### Method 1: LAYOUT Mode
@@ -58,8 +77,7 @@ WITH parsed AS (
 )
 SELECT 
     TRIM(SPLIT_PART(line.value, '|', 2)) AS column_1,
-    TRIM(SPLIT_PART(line.value, '|', 3)) AS column_2,
-    -- Add more columns as needed
+    TRIM(SPLIT_PART(line.value, '|', 3)) AS column_2
 FROM parsed,
 LATERAL FLATTEN(input => SPLIT(markdown_content, '\n')) line
 WHERE line.value LIKE '%|%'
@@ -80,7 +98,7 @@ WITH ocr_output AS (
 llm_response AS (
     SELECT SNOWFLAKE.CORTEX.COMPLETE(
         'llama3.1-70b',
-        'Parse the following text into a JSON array with columns: col1, col2, col3. Return ONLY valid JSON.
+        'Parse into JSON array with columns: col1, col2. Return ONLY valid JSON.
 
 ' || raw_text
     ) AS response
@@ -94,8 +112,7 @@ parsed AS (
 )
 SELECT 
     f.value:"col1"::STRING AS column_1,
-    f.value:"col2"::STRING AS column_2,
-    TRY_TO_NUMBER(f.value:"col3"::STRING) AS column_3
+    TRY_TO_NUMBER(f.value:"col2"::STRING) AS column_2
 FROM parsed, LATERAL FLATTEN(input => json_data) f;
 ```
 
@@ -123,13 +140,6 @@ SELECT AI_PARSE_DOCUMENT(
     {'mode': 'OCR', 'page_split': TRUE}
 ) AS parsed
 ```
-
-## Best Practices
-
-1. **Inspect raw output first** - Always examine the raw LAYOUT or OCR output before writing extraction logic
-2. **Use TRY_TO_NUMBER** - Safely convert numeric strings to numbers
-3. **Handle empty values** - Use NULL or empty string handling as appropriate
-4. **Test incrementally** - Validate extraction logic on sample data before full runs
 
 ## Resources
 
